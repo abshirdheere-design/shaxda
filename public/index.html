@@ -7,7 +7,7 @@
     <meta property="fb:app_id" content="1314104827206725" />
     <meta property="og:type" content="games.casual" />
     <meta property="og:title" content="JARTA LABADA DARAF - Multiplayer 2026" />
-    <meta property="og:description" content="Ku ciyaar Jarta Online saaxiibbadaa. Ciyaar dhaqameed casri ah oo uu horumariyay Abshir Hassan." />
+    <meta property="og:description" content="Ku ciyaar Jarta Online saaxiibbadaa. Ciyaar dhaqameed casri ah oo uu horumariyay Abshir Hassan (Abshirdheere)." />
     <meta property="og:url" content="https://ciyaar-jar.onrender.com" />
     <meta property="og:image" content="https://ciyaar-jar.onrender.com/assets/logo.png" />
 
@@ -120,26 +120,19 @@
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     
     <script>
-        // 1. Jooji Menu-ka midig (Right Click)
+        // 2. DIFAACA KOODHKA (SECURITY)
         document.addEventListener('contextmenu', function(e) {
             e.preventDefault();
-            alert("Security: Action Not Allowed!");
         }, false);
 
-        // 2. Jooji Shortcuts-ka Inspect Element iyo Console
         document.onkeydown = function(e) {
-            // F12
             if (e.keyCode == 123) return false;
-            // Ctrl+Shift+I (Inspect)
             if (e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) return false;
-            // Ctrl+Shift+J (Console)
             if (e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) return false;
-            // Ctrl+U (View Source)
             if (e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) return false;
         };
-    </script>
 
-    <script>
+        // 3. GAME FUNCTIONS
         function leaveGame() {
             if(confirm("Ma hubtaa inaad ka baxayso?")) {
                 localStorage.removeItem("shaxRoom");
@@ -150,14 +143,6 @@
         function closeModal() {
             document.getElementById("gameModal").style.display = "none";
             location.reload(); 
-        }
-
-        function playSound(id) {
-            const sound = document.getElementById(id);
-            if (sound) {
-                sound.currentTime = 0;
-                sound.play().catch(e => console.log("Sound error:", e));
-            }
         }
 
         function watchLiveMatch() {

@@ -7,8 +7,9 @@ let possibleMoves = [], gameEnded = false, activePiece = null;
 
 // Solo Mode States
 let isSoloMode = false;
-let soloTurn = "red"; // 'red' waa adiga (X), 'blue' waa Bot-ka (O)
+let soloTurn = "red"; // 'red' waa adiga, 'blue' waa Bot-ka
 let redPiecesPlaced = 0, bluePiecesPlaced = 0;
+let isCaptureState = false; // Marka 3 la isku xiro ee dhibic la qaadayo
 
 // --- INITIAL LOAD ---
 window.onload = () => {
@@ -20,17 +21,11 @@ window.onload = () => {
 };
 
 // --- MULTIPLAYER SOCKET EVENTS ---
-
 socket.on("assignedColor", (color) => { 
     myColor = color; 
     const boardElement = document.getElementById("board");
-    const turnText = document.getElementById("turnText");
-
     if (color === "spectator") {
-        if (turnText) {
-            turnText.innerText = "👀 Waxaad tahay Daawade";
-            turnText.style.color = "#ffd60a";
-        }
+        document.getElementById("turnText").innerText = "👀 Waxaad tahay Daawade";
         if (boardElement) {
             boardElement.style.pointerEvents = "none"; 
             boardElement.style.opacity = "0.8"; 
@@ -39,20 +34,17 @@ socket.on("assignedColor", (color) => {
 });
 
 socket.on("gameState", (state) => {
-    if (isSoloMode) return; // MUHIIM: Jooji server-ka haddii Solo lagu jiro
+    if (isSoloMode) return; 
     if (!state) return;
     board = state.board;
     phase = state.phase;
     turn = state.turn;
-    activePiece = state.activePiece;
     gameEnded = !!state.winner;
-
     updateUI(state);
     renderBoard();
 });
 
 // --- SOLO MODE FUNCTIONS ---
-
 window.initSoloGame = function() {
     isSoloMode = true;
     gameEnded = false;
@@ -62,7 +54,10 @@ window.initSoloGame = function() {
     myColor = "red";
     redPiecesPlaced = 0;
     bluePiecesPlaced = 0;
+    isCaptureState = false;
     
+    document.getElementById("setup-area").style.display = "none";
+    document.getElementById("game-ui").style.display = "block";
     document.getElementById("p1-display").innerText = "🔴 Adiga";
     document.getElementById("p2-display").innerText = "🔵 Robot (Bot)";
     
@@ -74,51 +69,86 @@ function updateSoloUI() {
     const turnText = document.getElementById("turnText");
     if (gameEnded) return;
 
-    if (soloTurn === "red") {
-        turnText.innerText = phase === "placing" ? "Turn-kaaga: Dhig" : "Turn-kaaga: Dhaqaaq";
-        turnText.style.color = "#2ecc71";
+    if (isCaptureState) {
+        turnText.innerText = soloTurn === "red" ? "🎯 DOORO DHIBIC AAD KA QAADDO!" : "🤖 Robot-ka ayaa dhibic kaa qaaday!";
+        turnText.style.color = "#f1c40f";
     } else {
-        turnText.innerText = "Robot-ka ayaa fakaraya...";
-        turnText.style.color = "#f39c12";
+        if (soloTurn === "red") {
+            turnText.innerText = phase === "placing" ? "Turn-kaaga: Dhig" : "Turn-kaaga: Dhaqaaq";
+            turnText.style.color = "#2ecc71";
+        } else {
+            turnText.innerText = "Robot-ka ayaa fakaraya...";
+            turnText.style.color = "#f39c12";
+        }
     }
 }
 
 // --- CORE GAMEPLAY LOGIC ---
-
 function handleCellClick(index) {
     if (gameEnded || myColor === "spectator") return;
 
-    // 1. SOLO MODE LOGIC
     if (isSoloMode) {
-        if (soloTurn !== "red") return; 
+        // 1. Marka dhibic la qabsanayo (Capture State)
+        if (isCaptureState) {
+            if (soloTurn === "red" && board[index] === "blue") {
+                board[index] = null;
+                isCaptureState = false;
+                playSound("capture");
+                soloTurn = "blue";
+                updateSoloUI();
+                renderBoard();
+                setTimeout(botMove, 800);
+            }
+            return;
+        }
 
+        if (soloTurn !== "red") return;
+
+        // 2. Placing Phase
         if (phase === "placing") {
             if (board[index] === null && redPiecesPlaced < 12) {
                 board[index] = "red";
                 redPiecesPlaced++;
                 playSound("move");
+                if (checkCapture(index, "red")) {
+                    isCaptureState = true;
+                } else {
+                    soloTurn = "blue";
+                    setTimeout(botMove, 800);
+                }
                 checkSoloPhaseTransition();
-                soloTurn = "blue";
-                updateSoloUI();
-                renderBoard();
-                setTimeout(botMove, 800); // Robot-ka ayaa ciyaaraya
             }
-        } else {
-            handleMovingPhaseSolo(index);
+        } 
+        // 3. Moving Phase
+        else if (phase === "moving") {
+            if (board[index] === "red") {
+                selectedIndex = index;
+                possibleMoves = getMoves(index);
+            } else if (selectedIndex !== null && possibleMoves.includes(index)) {
+                board[selectedIndex] = null;
+                board[index] = "red";
+                playSound("move");
+                if (checkCapture(index, "red")) {
+                    isCaptureState = true;
+                } else {
+                    soloTurn = "blue";
+                    setTimeout(botMove, 800);
+                }
+                selectedIndex = null;
+                possibleMoves = [];
+            }
         }
+        updateSoloUI();
+        renderBoard();
         return;
     }
 
-    // 2. ONLINE MULTIPLAYER LOGIC
+    // ONLINE LOGIC (Sidiisii hore)
     if (turn !== socket.id) return;
     const rCode = roomCode || localStorage.getItem("shaxRoom");
-
     if (phase === "placing") {
-        if (board[index] === null) {
-            socket.emit("move", { roomCode: rCode, move: { type: "place", index } });
-        }
+        if (board[index] === null) socket.emit("move", { roomCode: rCode, move: { type: "place", index } });
     } else {
-        // Online moving logic (koodhkaaga hadda ka eeg)
         if (board[index] === myColor) {
             selectedIndex = index;
             possibleMoves = getMoves(index);
@@ -132,46 +162,82 @@ function handleCellClick(index) {
 }
 
 // --- BOT AI LOGIC ---
-
 function botMove() {
-    if (!isSoloMode || gameEnded) return;
+    if (!isSoloMode || gameEnded || isCaptureState) return;
+
+    let moveMade = false;
+    let moveIndex = -1;
 
     if (phase === "placing") {
         let available = board.map((v, i) => v === null ? i : null).filter(v => v !== null);
         if (available.length > 0) {
-            let move = available[Math.floor(Math.random() * available.length)];
-            board[move] = "blue";
+            moveIndex = available[Math.floor(Math.random() * available.length)];
+            board[moveIndex] = "blue";
             bluePiecesPlaced++;
+            moveMade = true;
         }
     } else {
-        // Bot Move Logic (Moving Phase)
         let botPieces = board.map((v, i) => v === "blue" ? i : null).filter(v => v !== null);
         for (let p of botPieces) {
             let moves = getMoves(p);
             if (moves.length > 0) {
-                let target = moves[Math.floor(Math.random() * moves.length)];
+                moveIndex = moves[Math.floor(Math.random() * moves.length)];
                 board[p] = null;
-                board[target] = "blue";
+                board[moveIndex] = "blue";
+                moveMade = true;
                 break;
             }
         }
     }
 
-    playSound("move");
-    checkSoloPhaseTransition();
-    soloTurn = "red";
-    updateSoloUI();
-    renderBoard();
-}
-
-function checkSoloPhaseTransition() {
-    if (redPiecesPlaced === 12 && bluePiecesPlaced === 12) {
-        phase = "moving";
+    if (moveMade) {
+        playSound("move");
+        if (checkCapture(moveIndex, "blue")) {
+            // Bot-ka ayaa dhibic naga qaadaya (Randomly)
+            let playerPieces = board.map((v, i) => v === "red" ? i : null).filter(v => v !== null);
+            if (playerPieces.length > 0) {
+                let toRemove = playerPieces[Math.floor(Math.random() * playerPieces.length)];
+                board[toRemove] = null;
+                playSound("capture");
+            }
+        }
+        checkSoloPhaseTransition();
+        soloTurn = "red";
+        updateSoloUI();
+        renderBoard();
     }
 }
 
-// --- RENDER & UTILS ---
+// --- CAPTURE LOGIC (3 isku xiran) ---
+function checkCapture(index, color) {
+    const row = Math.floor(index / 5);
+    const col = index % 5;
+    
+    // Horizontal
+    let rowMatch = 0;
+    for (let i = row * 5; i < (row * 5) + 5; i++) {
+        if (board[i] === color) {
+            rowMatch++;
+            if (rowMatch === 3) return true;
+        } else { rowMatch = 0; }
+    }
 
+    // Vertical
+    let colMatch = 0;
+    for (let i = col; i < 25; i += 5) {
+        if (board[i] === color) {
+            colMatch++;
+            if (colMatch === 3) return true;
+        } else { colMatch = 0; }
+    }
+    return false;
+}
+
+function checkSoloPhaseTransition() {
+    if (redPiecesPlaced === 12 && bluePiecesPlaced === 12) phase = "moving";
+}
+
+// --- RENDER & UTILS ---
 function renderBoard() {
     const boardDiv = document.getElementById("board");
     if (!boardDiv) return;
@@ -190,22 +256,27 @@ function getMoves(pos) {
     let list = [], r = Math.floor(pos/5), c = pos%5, dirs = [[1,0],[-1,0],[0,1],[0,-1]];
     dirs.forEach(([dr, dc]) => {
         let nr = r+dr, nc = c+dc;
-        if (nr>=0 && nr<5 && nc>=0 && nc<5 && board[nr*5+nc] === null) {
-            list.push(nr*5+nc);
-        }
+        if (nr>=0 && nr<5 && nc>=0 && nc<5 && board[nr*5+nc] === null) list.push(nr*5+nc);
     });
     return list;
 }
 
 function playSound(type) {
     const sound = (type === "move") ? document.getElementById("moveSound") : document.getElementById("captureSound");
-    if (sound) sound.play().catch(e => console.log("Sound error"));
+    if (sound) sound.play().catch(() => {});
+}
+
+function updateUI(state) {
+    // Qaybtii Multiplayer UI update (Captured pieces, names etc.)
+    const redLost = 12 - (board.filter(v => v === "red").length);
+    const blueLost = 12 - (board.filter(v => v === "blue").length);
+    document.getElementById("captured-red").innerHTML = "🔴".repeat(redLost);
+    document.getElementById("captured-blue").innerHTML = "🔵".repeat(blueLost);
 }
 
 // --- NAVIGATION ---
-
 function startRandomMatch() {
-    isSoloMode = false; // Hubi inaan Solo ka bixi lahayn
+    isSoloMode = false;
     const name = document.getElementById("nameInput").value.trim();
     if (!name) return alert("Geli magaca");
     localStorage.setItem("shaxName", name);

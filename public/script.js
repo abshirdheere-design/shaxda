@@ -1,13 +1,15 @@
 const socket = io();
 
+// --- VARIABLES ---
 let myColor = null, roomCode = null, board = Array(25).fill(null);
 let phase = "placing", turn = null, selectedIndex = null;
-let possibleMoves = [], gameEnded = false, activePiece = null;
+let possibleMoves = [], gameEnded = false;
 
-// --- SOLO MODE VARIABLES (DUMMY SERVER) ---
+// Solo Mode States
 let isSoloMode = false;
-let soloTurn = "red"; // 'red' waa adiga, 'blue' waa Bot-ka
-let redPiecesPlaced = 0, bluePiecesPlaced = 0;
+let soloTurn = "red"; 
+let redPlaced = 0, bluePlaced = 0;
+let isCaptureState = false; 
 
 // --- INITIAL LOAD ---
 window.onload = () => {
@@ -18,305 +20,231 @@ window.onload = () => {
     }
 };
 
-// --- SOLO MODE INITIALIZER ---
-window.startSoloGame = function() {
+// --- 1. ONLINE MODE FIX ---
+window.startRandomMatch = function() {
+    isSoloMode = false;
     const nameInput = document.getElementById("nameInput");
-    const name = nameInput ? nameInput.value.trim() : "Adiga";
-    
+    const name = nameInput ? nameInput.value.trim() : "";
+    if (!name) return alert("Geli magacaaga marka hore!");
+    localStorage.setItem("shaxName", name);
+    socket.emit("findMatch", name); // Hubi in Server-kaagu leeyahay 'findMatch'
+};
+
+// --- 2. SOLO MODE (BOT) START ---
+window.startSoloGame = function() {
     isSoloMode = true;
     gameEnded = false;
     board = Array(25).fill(null);
     phase = "placing";
     soloTurn = "red";
-    myColor = "red";
-    redPiecesPlaced = 0;
-    bluePiecesPlaced = 0;
-
+    redPlaced = 0;
+    bluePlaced = 0;
+    isCaptureState = false;
+    
     showGameScreen();
-    
-    // Update Displays
-    document.getElementById("p1-display").innerText = `🔴 ${name} (Adiga)`;
-    document.getElementById("p2-display").innerText = `🔵 Robot (Bot)`;
-    
+    document.getElementById("p1-display").innerText = "🔴 Adiga";
+    document.getElementById("p2-display").innerText = "🔵 Robot (Bot)";
     updateSoloUI();
     renderBoard();
 };
 
-// --- SOCKET EVENTS ---
-socket.on("assignedColor", (color) => { 
-    myColor = color; 
-    const boardElement = document.getElementById("board");
-    const turnText = document.getElementById("turnText");
-
-    if (color === "spectator") {
-        if (turnText) {
-            turnText.innerText = "👀 Waxaad tahay Daawade (Spectator)";
-            turnText.style.color = "#ffd60a";
-        }
-        if (boardElement) {
-            boardElement.style.pointerEvents = "none"; 
-            boardElement.style.opacity = "0.8"; 
-        }
-    } else {
-        if (boardElement) {
-            boardElement.style.pointerEvents = "auto";
-            boardElement.style.opacity = "1";
-        }
-    }
-});
-
-socket.on("gameState", (state) => {
-    if (isSoloMode) return; // Ha u oggolaan server-ka inuu khalkhal geliyo Solo Mode
-    if (!state) return;
-    board = state.board;
-    phase = state.phase;
-    turn = state.turn;
-    activePiece = state.activePiece;
-    gameEnded = !!state.winner;
-
-    showGameScreen();
-    updateUI(state);
-    renderBoard();
-});
-
-// --- UI FUNCTIONS ---
-
-function updateSoloUI() {
-    const turnText = document.getElementById("turnText");
-    if (!turnText) return;
-
-    if (gameEnded) return;
-
-    const isMyTurn = (soloTurn === "red");
-    turnText.innerText = isMyTurn ? 
-        (phase === "placing" ? "Turn-kaaga: Dhig" : "Turn-kaaga: Dhaqaaq") : 
-        "Robot-ka ayaa fakaraya...";
-    turnText.style.color = isMyTurn ? "#2ecc71" : "#f39c12";
-}
-
-function updateUI(state) {
-    const turnText = document.getElementById("turnText");
-    if (!turnText) return;
-
-    if (state.winner) {
-        if (state.winner === "draw") {
-            turnText.innerText = "🤝 WAAB (BARBARO)!";
-            turnText.style.color = "#3498db";
-        } else {
-            const winP = state.players.find(p => p.id === state.winner || p.color === state.winner);
-            turnText.innerText = `🏆 GUUL! ${winP ? winP.name : "Ciyaaryahanka"} ayaa badiyay!`;
-            turnText.style.color = "#f1c40f";
-        }
-    } else if (myColor !== "spectator") {
-        const isMyTurn = (turn === socket.id);
-        turnText.innerText = isMyTurn ? 
-            (phase === "placing" ? "Turn-kaaga: Dhig" : "Turn-kaaga: Dhaqaaq") : 
-            "Sug qofka kale...";
-        turnText.style.color = isMyTurn ? "#2ecc71" : "#bdc3c7";
-    }
-
-    const redLost = 12 - state.redPieces;
-    const blueLost = 12 - state.bluePieces;
-    const redCapDiv = document.getElementById("captured-red");
-    const blueCapDiv = document.getElementById("captured-blue");
-    if (redCapDiv) redCapDiv.innerHTML = "🔴".repeat(redLost);
-    if (blueCapDiv) blueCapDiv.innerHTML = "🔵".repeat(blueLost);
-
-    state.players.forEach(p => {
-        const el = document.getElementById(p.color === "red" ? "p1-display" : "p2-display");
-        if (el) {
-            el.innerText = `${p.color === "red" ? "🔴" : "🔵"} ${p.name} ${p.id === socket.id ? "(Adiga)" : ""}`;
-            el.classList.toggle("active-turn", !state.winner && turn === p.id);
-        }
-    });
-}
-
-function renderBoard() {
-    const boardDiv = document.getElementById("board");
-    if (!boardDiv) return;
-    boardDiv.innerHTML = "";
-    board.forEach((cell, i) => {
-        const div = document.createElement("div");
-        div.className = `cell ${cell || ''}`;
-        if (selectedIndex === i) div.classList.add("selected");
-        if (possibleMoves.includes(i)) div.classList.add("highlight-move");
-        if (activePiece === i) div.classList.add("active-piece-jump");
-        div.onclick = () => handleCellClick(i);
-        boardDiv.appendChild(div);
-    });
-}
-
-// --- GAMEPLAY LOGIC ---
-
+// --- CORE GAMEPLAY LOGIC ---
 function handleCellClick(index) {
     if (gameEnded || myColor === "spectator") return;
 
     if (isSoloMode) {
-        if (soloTurn !== "red") return;
-        
-        if (phase === "placing") {
-            if (board[index] === null && redPiecesPlaced < 12) {
-                board[index] = "red";
-                redPiecesPlaced++;
-                if (redPiecesPlaced === 12 && bluePiecesPlaced === 12) phase = "moving";
-                soloTurn = "blue";
-                updateSoloUI();
-                renderBoard();
-                setTimeout(botMove, 800);
-            }
-        } else {
-            // Solo Moving Logic
-            if (board[index] === "red") {
-                selectedIndex = index;
-                possibleMoves = getMoves(index);
-            } else if (selectedIndex !== null && possibleMoves.includes(index)) {
-                board[selectedIndex] = null;
-                board[index] = "red";
-                selectedIndex = null;
-                possibleMoves = [];
-                soloTurn = "blue";
-                updateSoloUI();
-                renderBoard();
-                setTimeout(botMove, 800);
-            }
+        handleSoloMove(index);
+    } else {
+        handleOnlineMove(index);
+    }
+}
+
+// --- SOLO LOGIC (A, B, C FIXES) ---
+function handleSoloMove(index) {
+    if (isCaptureState) {
+        if (soloTurn === "red" && board[index] === "blue") {
+            board[index] = null;
+            isCaptureState = false;
+            playSound("capture");
+            soloTurn = "blue";
+            updateSoloUI();
+            renderBoard();
+            setTimeout(botMove, 800);
         }
-        renderBoard();
         return;
     }
 
-    // MULTIPLAYER LOGIC (Koodhkaagii)
-    if (turn !== socket.id) return;
-    const rCode = roomCode || localStorage.getItem("shaxRoom");
+    if (soloTurn !== "red") return;
 
     if (phase === "placing") {
-        if (board[index] === null) {
-            socket.emit("move", { roomCode: rCode, move: { type: "place", index } });
+        // XEERKA 2-2: Labo labo u dhig (2 Red, then 2 Blue)
+        if (board[index] === null && redPlaced < 12) {
+            board[index] = "red";
+            redPlaced++;
+            playSound("move");
+
+            // Hubi haddii loo wareejinayo Bot-ka (Markaad 2 dhigto)
+            if (redPlaced % 2 === 0 || redPlaced === 12) {
+                soloTurn = "blue";
+                setTimeout(botMove, 800);
+            }
+            if (redPlaced === 12 && bluePlaced === 12) phase = "moving";
         }
     } else {
-        if (activePiece !== null) {
-            if (index === activePiece) {
-                selectedIndex = index;
-                possibleMoves = getMoves(index);
-            } else if (selectedIndex === activePiece && possibleMoves.includes(index)) {
-                sendMove(rCode, selectedIndex, index);
-            }
-        } else {
-            if (board[index] === myColor) {
-                selectedIndex = index;
-                possibleMoves = getMoves(index);
-            } else if (selectedIndex !== null && possibleMoves.includes(index)) {
-                sendMove(rCode, selectedIndex, index);
+        // MOVING PHASE & CAPTURE
+        if (board[index] === "red") {
+            selectedIndex = index;
+            possibleMoves = getMoves(index);
+        } else if (selectedIndex !== null && possibleMoves.includes(index)) {
+            board[selectedIndex] = null;
+            board[index] = "red";
+            selectedIndex = null;
+            possibleMoves = [];
+            playSound("move");
+
+            if (checkCapture(index, "red")) {
+                isCaptureState = true;
             } else {
-                resetSelection();
+                soloTurn = "blue";
+                setTimeout(botMove, 800);
             }
         }
     }
+    updateSoloUI();
     renderBoard();
 }
 
-// --- BOT AI LOGIC ---
 function botMove() {
-    if (!isSoloMode || gameEnded) return;
+    if (!isSoloMode || gameEnded || isCaptureState) return;
 
     if (phase === "placing") {
         let available = board.map((v, i) => v === null ? i : null).filter(v => v !== null);
         if (available.length > 0) {
             let move = available[Math.floor(Math.random() * available.length)];
             board[move] = "blue";
-            bluePiecesPlaced++;
-            if (redPiecesPlaced === 12 && bluePiecesPlaced === 12) phase = "moving";
+            bluePlaced++;
+            
+            // Bot-kuna 2 jeer ayuu dhigayaa
+            if (bluePlaced % 2 !== 0 && bluePlaced < 12) {
+                setTimeout(botMove, 500);
+            } else {
+                soloTurn = "red";
+            }
         }
     } else {
+        // Bot Moving
         let botPieces = board.map((v, i) => v === "blue" ? i : null).filter(v => v !== null);
+        let moved = false;
         for (let p of botPieces) {
             let moves = getMoves(p);
             if (moves.length > 0) {
                 let target = moves[Math.floor(Math.random() * moves.length)];
                 board[p] = null;
                 board[target] = "blue";
-                break;
+                if (checkCapture(target, "blue")) {
+                    // Robot-ka ayaa dhibic kaa qaadaya
+                    let mine = board.map((v, i) => v === "red" ? i : null).filter(v => v !== null);
+                    if (mine.length > 0) board[mine[0]] = null;
+                }
+                moved = true; break;
             }
         }
+        // XEERKA C: GO'DOON (Trap)
+        if (!moved) { 
+            alert("Robot-ku waa go'doon! Turn-ka adigaa iska leh.");
+            soloTurn = "red";
+        } else {
+            soloTurn = "red";
+        }
     }
-    soloTurn = "red";
+    if (redPlaced === 12 && bluePlaced === 12) phase = "moving";
     updateSoloUI();
     renderBoard();
 }
 
-function sendMove(room, from, to) {
-    socket.emit("move", { roomCode: room, move: { type: "move", from, to } });
-    resetSelection();
+// --- CAPTURE CALCULATOR (3 ISKU XIRAN) ---
+function checkCapture(index, color) {
+    const row = Math.floor(index / 5);
+    const col = index % 5;
+    const checkLine = (indices) => indices.every(i => board[i] === color);
+
+    // Horizontal
+    for (let c = 0; c <= 2; c++) {
+        let base = row * 5 + c;
+        if (checkLine([base, base+1, base+2])) return true;
+    }
+    // Vertical
+    for (let r = 0; r <= 2; r++) {
+        let base = r * 5 + col;
+        if (checkLine([base, base+5, base+10])) return true;
+    }
+    return false;
 }
 
-function resetSelection() { 
-    selectedIndex = null; 
-    possibleMoves = []; 
-}
-
-function getMoves(pos) {
-    let list = [], r = Math.floor(pos/5), c = pos%5, dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-    dirs.forEach(([dr, dc]) => {
-        let nr = r+dr, nc = c+dc;
-        if (nr>=0 && nr<5 && nc>=0 && nc<5 && board[nr*5+nc] === null) {
-            list.push(nr*5+nc);
+// --- ONLINE HELPERS ---
+function handleOnlineMove(index) {
+    if (turn !== socket.id) return;
+    const rCode = roomCode || localStorage.getItem("shaxRoom");
+    if (phase === "placing") {
+        if (board[index] === null) socket.emit("move", { roomCode: rCode, move: { type: "place", index } });
+    } else {
+        if (board[index] === myColor) {
+            selectedIndex = index;
+            possibleMoves = getMoves(index);
+        } else if (selectedIndex !== null && possibleMoves.includes(index)) {
+            socket.emit("move", { roomCode: rCode, move: { type: "move", from: selectedIndex, to: index } });
+            selectedIndex = null;
         }
+    }
+}
+
+// --- SHARED UTILS ---
+function getMoves(pos) {
+    let list = [], r = Math.floor(pos/5), c = pos%5;
+    [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dr, dc]) => {
+        let nr = r+dr, nc = c+dc;
+        if (nr>=0 && nr<5 && nc>=0 && nc<5 && board[nr*5+nc] === null) list.push(nr*5+nc);
     });
     return list;
 }
 
-// --- NAVIGATION & MODES ---
-function showGameScreen() {
-    const setup = document.getElementById("setup-area");
-    const gui = document.getElementById("game-ui");
-    if (setup) setup.style.display = "none";
-    if (gui) gui.style.display = "block";
-}
-
-function startRandomMatch() {
-    isSoloMode = false;
-    const nameInput = document.getElementById("nameInput");
-    const name = nameInput ? nameInput.value.trim() : "";
-    if (!name) return alert("Geli magaca");
-    localStorage.setItem("shaxName", name);
-    socket.emit("findMatch", name);
-}
-
-// --- Spectator & Joins (Sidiisii hore) ---
-function joinRoom() {
-    isSoloMode = false;
-    const nameInput = document.getElementById("nameInput");
-    const roomInput = document.getElementById("roomInput");
-    const name = nameInput ? nameInput.value.trim() : "";
-    const r = roomInput ? roomInput.value.trim() : "";
-    if (!name || !r) return alert("Geli macluumaadka");
-    localStorage.setItem("shaxName", name);
-    localStorage.setItem("shaxRoom", r);
-    socket.emit("joinRoom", { roomCode: r, playerName: name });
-}
-
-function watchLiveMatch() {
-    isSoloMode = false;
-    const nameInput = document.getElementById("nameInput");
-    const name = nameInput.value.trim() || "Daawade " + Math.floor(Math.random() * 1000);
-    if (!socket || !socket.connected) {
-        alert("Server-ka laguma xirna. Fadlan dib u cusboonaysii bogga.");
-        return;
-    }
-    socket.emit("requestSpectate", name);
-}
-
-socket.on("spectateGame", (data) => {
-    myColor = "spectator";
-    roomCode = data.roomCode;
-    showGameScreen();
-    const turnText = document.getElementById("turnText");
-    if (turnText) {
-        turnText.innerText = `👀 Waxaad daawanaysaa: ${data.players}`;
-        turnText.style.color = "#ffd60a";
-    }
+function renderBoard() {
     const boardDiv = document.getElementById("board");
-    if (boardDiv) {
-        boardDiv.style.pointerEvents = "none"; 
-        boardDiv.style.opacity = "0.9"; 
+    boardDiv.innerHTML = "";
+    board.forEach((cell, i) => {
+        const div = document.createElement("div");
+        div.className = `cell ${cell || ''}`;
+        if (selectedIndex === i) div.classList.add("selected");
+        if (possibleMoves.includes(i)) div.classList.add("highlight-move");
+        div.onclick = () => handleCellClick(i);
+        boardDiv.appendChild(div);
+    });
+}
+
+function updateSoloUI() {
+    const turnText = document.getElementById("turnText");
+    if (isCaptureState) {
+        turnText.innerText = "🎯 QAAD DHIBIC!";
+        turnText.style.color = "#f1c40f";
+    } else {
+        turnText.innerText = (soloTurn === "red") ? "Turn-kaaga" : "Robot-ka...";
+        turnText.style.color = (soloTurn === "red") ? "#2ecc71" : "#f39c12";
     }
+}
+
+function showGameScreen() {
+    document.getElementById("setup-area").style.display = "none";
+    document.getElementById("game-ui").style.display = "block";
+}
+
+function playSound(type) {
+    const s = document.getElementById(type === "move" ? "moveSound" : "captureSound");
+    if (s) s.play().catch(() => {});
+}
+
+// Online Socket events (assignedColor, gameState, etc.) sidiisii u daa...
+socket.on("gameState", (state) => {
+    if (isSoloMode) return;
+    board = state.board; phase = state.phase; turn = state.turn;
+    showGameScreen(); renderBoard();
 });

@@ -18,173 +18,39 @@ window.onload = () => {
     }
 };
 
-// --- SOLO MODE START ---
-window.startSoloGame = function() {
-    isSoloMode = true;
-    gameEnded = false;
-    board = Array(25).fill(null);
-    phase = "placing";
-    soloTurn = "red";
-    myColor = "red";
-    redPiecesPlaced = 0;
-    bluePiecesPlaced = 0;
+// --- NAVIGATION & UI ---
 
-    showGameScreen();
-    document.getElementById("p1-display").innerText = "🔴 Adiga";
-    document.getElementById("p2-display").innerText = "🔵 Robot (Bot)";
-    updateSoloUI();
-    renderBoard();
-};
-
-// --- XEERKA GOYNTA (SANDWICH LOGIC) ---
-function checkAndRemoveSandwich(index, color) {
-    const opponent = (color === "red") ? "blue" : "red";
-    const r = Math.floor(index / 5);
-    const checks = [
-        { m: index + 1, e: index + 2, isRow: true },  // Midig
-        { m: index - 1, e: index - 2, isRow: true },  // Bidix
-        { m: index + 5, e: index + 10, isRow: false }, // Hoose
-        { m: index - 5, e: index - 10, isRow: false }  // Sare
-    ];
-
-    checks.forEach(ch => {
-        if (ch.m >= 0 && ch.m < 25 && ch.e >= 0 && ch.e < 25) {
-            if (ch.isRow && Math.floor(ch.m / 5) !== r) return;
-            if (ch.isRow && Math.floor(ch.e / 5) !== r) return;
-
-            if (board[ch.m] === opponent && board[ch.e] === color) {
-                board[ch.m] = null; 
-            }
-        }
-    });
+function showGameScreen() { 
+    const setup = document.getElementById("setup-area");
+    const gui = document.getElementById("game-ui");
+    if (setup) setup.style.display = "none"; 
+    if (gui) gui.style.display = "block"; 
 }
 
-// --- XEERKA GO'DOONKA (TRAP = LOSS) ---
-function checkGameOverByTrap(color) {
-    if (phase === "placing") return false; 
-    const pieces = board.map((v, i) => v === color ? i : null).filter(v => v !== null);
-    const canMove = pieces.some(p => getMoves(p).length > 0);
+function updateUI(state) {
+    const turnText = document.getElementById("turnText");
+    if (!turnText) return;
 
-    if (!canMove && pieces.length > 0) {
-        gameEnded = true;
-        const msg = (color === "red") ? "WAAD GO'DOONTAY! Robot-ka ayaa badiyay." : "ROBOT-KII AYAA GO'DOOMAY! Waad guulaysatay.";
-        alert(msg);
-        return true;
-    }
-    return false;
-}
-
-// --- XEERKA WAABKA ---
-function checkWaab() {
-    if (phase !== "moving") return;
-    const redCount = board.filter(v => v === "red").length;
-    const blueCount = board.filter(v => v === "blue").length;
-    if (redCount <= 3 && blueCount <= 3) {
-        gameEnded = true;
-        alert("WAAB! Ciyaartu waa barbaro.");
+    if (state.winner) {
+        turnText.innerText = state.winner === "draw" ? "🤝 WAAB (BARBARO)!" : `🏆 GUUL!`;
+        turnText.style.color = "#f1c40f";
+    } else if (myColor !== "spectator") {
+        const isMyTurn = (turn === socket.id);
+        turnText.innerText = isMyTurn ? 
+            (phase === "placing" ? "Turn-kaaga: Dhig" : "Turn-kaaga: Dhaqaaq") : "Sug qofka kale...";
+        turnText.style.color = isMyTurn ? "#2ecc71" : "#bdc3c7";
     }
 }
 
-// --- SOLO GAMEPLAY LOGIC ---
-function handleSoloGameplay(index) {
-    if (soloTurn !== "red" || gameEnded) return;
-
-    if (phase === "placing") {
-        if (board[index] === null && redPiecesPlaced < 12) {
-            board[index] = "red";
-            redPiecesPlaced++;
-            checkAndRemoveSandwich(index, "red");
-
-            if (redPiecesPlaced % 2 === 0 || redPiecesPlaced === 12) {
-                soloTurn = "blue";
-                setTimeout(botMove, 800);
-            }
-        }
-    } else {
-        if (board[index] === "red") {
-            selectedIndex = index;
-            possibleMoves = getMoves(index);
-        } else if (selectedIndex !== null && possibleMoves.includes(index)) {
-            board[selectedIndex] = null;
-            board[index] = "red";
-            checkAndRemoveSandwich(index, "red");
-
-            if (!checkGameOverByTrap("blue")) {
-                soloTurn = "blue";
-                setTimeout(botMove, 800);
-            }
-            checkWaab();
-            resetSelection();
-        }
-    }
-    if (redPiecesPlaced === 12 && bluePiecesPlaced === 12) phase = "moving";
-    updateSoloUI();
-    renderBoard();
+function updateSoloUI() {
+    const turnText = document.getElementById("turnText");
+    if (!turnText) return;
+    const isMyTurn = (soloTurn === "red");
+    turnText.innerText = isMyTurn ? "Turn-kaaga (Red)" : "Robot-ka ayaa fakaraya...";
+    turnText.style.color = isMyTurn ? "#2ecc71" : "#f39c12";
 }
 
-function botMove() {
-    if (!isSoloMode || gameEnded) return;
-
-    if (phase === "placing") {
-        let empty = board.map((v, i) => v === null ? i : null).filter(v => v !== null);
-        if (empty.length > 0) {
-            let idx = empty[Math.floor(Math.random() * empty.length)];
-            board[idx] = "blue";
-            bluePiecesPlaced++;
-            checkAndRemoveSandwich(idx, "blue");
-            if (bluePiecesPlaced % 2 !== 0 && bluePiecesPlaced < 12) {
-                setTimeout(botMove, 600);
-            } else {
-                soloTurn = "red";
-            }
-        }
-    } else {
-        let botPieces = board.map((v, i) => v === "blue" ? i : null).filter(v => v !== null);
-        let moved = false;
-        for (let p of botPieces) {
-            let moves = getMoves(p);
-            if (moves.length > 0) {
-                let to = moves[Math.floor(Math.random() * moves.length)];
-                board[p] = null;
-                board[to] = "blue";
-                checkAndRemoveSandwich(to, "blue");
-                moved = true;
-                break;
-            }
-        }
-        checkGameOverByTrap("red");
-        if (moved) soloTurn = "red";
-    }
-    checkWaab();
-    if (redPiecesPlaced === 12 && bluePiecesPlaced === 12) phase = "moving";
-    updateSoloUI();
-    renderBoard();
-}
-
-// --- CORE FUNCTIONS (ONLINE & UI) ---
-
-function handleCellClick(index) {
-    if (gameEnded || myColor === "spectator") return;
-    if (isSoloMode) {
-        handleSoloGameplay(index);
-        return;
-    }
-    if (turn !== socket.id) return;
-
-    const rCode = roomCode || localStorage.getItem("shaxRoom");
-    if (phase === "placing") {
-        if (board[index] === null) socket.emit("move", { roomCode: rCode, move: { type: "place", index } });
-    } else {
-        if (board[index] === myColor) {
-            selectedIndex = index;
-            possibleMoves = getMoves(index);
-        } else if (selectedIndex !== null && possibleMoves.includes(index)) {
-            socket.emit("move", { roomCode: rCode, move: { type: "move", from: selectedIndex, to: index } });
-            resetSelection();
-        }
-    }
-    renderBoard();
-}
+// --- CORE GAMEPLAY ---
 
 function renderBoard() {
     const boardDiv = document.getElementById("board");
@@ -200,6 +66,34 @@ function renderBoard() {
     });
 }
 
+function handleCellClick(index) {
+    if (gameEnded || myColor === "spectator") return;
+
+    if (isSoloMode) {
+        handleSoloGameplay(index);
+        return;
+    }
+
+    // Online Mode Logic
+    if (turn !== socket.id) return;
+    const rCode = roomCode || localStorage.getItem("shaxRoom");
+
+    if (phase === "placing") {
+        if (board[index] === null) {
+            socket.emit("move", { roomCode: rCode, move: { type: "place", index } });
+        }
+    } else {
+        if (board[index] === myColor) {
+            selectedIndex = index;
+            possibleMoves = getMoves(index);
+        } else if (selectedIndex !== null && possibleMoves.includes(index)) {
+            socket.emit("move", { roomCode: rCode, move: { type: "move", from: selectedIndex, to: index } });
+            resetSelection();
+        }
+    }
+    renderBoard();
+}
+
 function getMoves(pos) {
     let list = [], r = Math.floor(pos/5), c = pos%5, dirs = [[1,0],[-1,0],[0,1],[0,-1]];
     dirs.forEach(([dr, dc]) => {
@@ -209,97 +103,134 @@ function getMoves(pos) {
     return list;
 }
 
-function updateSoloUI() {
-    const turnText = document.getElementById("turnText");
-    if (!turnText) return;
-    const isMyTurn = (soloTurn === "red");
-    turnText.innerText = isMyTurn ? "Turn-kaaga: Dhaqaaq" : "Robot-ka ayaa fakaraya...";
-    turnText.style.color = isMyTurn ? "#2ecc71" : "#bdc3c7";
-}
-
 function resetSelection() { selectedIndex = null; possibleMoves = []; }
 
-function showGameScreen() { 
-    document.getElementById("setup-area").style.display = "none"; 
-    document.getElementById("game-ui").style.display = "block"; 
+// --- XEERARKA (GOYNTA, GO'DOONKA, WAABKA) ---
+
+function checkAndRemoveSandwich(index, color) {
+    const opponent = (color === "red") ? "blue" : "red";
+    const r = Math.floor(index / 5);
+    const checks = [
+        { m: index + 1, e: index + 2, isRow: true }, 
+        { m: index - 1, e: index - 2, isRow: true }, 
+        { m: index + 5, e: index + 10, isRow: false },
+        { m: index - 5, e: index - 10, isRow: false }
+    ];
+
+    checks.forEach(ch => {
+        if (ch.m >= 0 && ch.m < 25 && ch.e >= 0 && ch.e < 25) {
+            if (ch.isRow && Math.floor(ch.m / 5) !== r) return;
+            if (ch.isRow && Math.floor(ch.e / 5) !== r) return;
+            if (board[ch.m] === opponent && board[ch.e] === color) board[ch.m] = null;
+        }
+    });
 }
 
-// --- SOCKET RECEIVERS & MATCHMAKING ---
+function checkGameOverByTrap(color) {
+    if (phase === "placing") return false; 
+    const pieces = board.map((v, i) => v === color ? i : null).filter(v => v !== null);
+    const canMove = pieces.some(p => getMoves(p).length > 0);
+
+    if (!canMove && pieces.length > 0) {
+        gameEnded = true;
+        alert(color === "red" ? "WAAD GO'DOONTAY!" : "ROBOT-KII AYAA GO'DOOMAY!");
+        return true;
+    }
+    return false;
+}
+
+// --- SOLO MODE LOGIC ---
+
+window.startSoloGame = function() {
+    isSoloMode = true; gameEnded = false; board = Array(25).fill(null);
+    phase = "placing"; soloTurn = "red"; myColor = "red";
+    redPiecesPlaced = 0; bluePiecesPlaced = 0;
+    showGameScreen(); renderBoard(); updateSoloUI();
+};
+
+function handleSoloGameplay(index) {
+    if (soloTurn !== "red" || gameEnded) return;
+
+    if (phase === "placing") {
+        if (board[index] === null && redPiecesPlaced < 12) {
+            board[index] = "red"; redPiecesPlaced++;
+            checkAndRemoveSandwich(index, "red");
+            if (redPiecesPlaced % 2 === 0 || redPiecesPlaced === 12) {
+                soloTurn = "blue"; setTimeout(botMove, 800);
+            }
+        }
+    } else {
+        if (board[index] === "red") {
+            selectedIndex = index; possibleMoves = getMoves(index);
+        } else if (selectedIndex !== null && possibleMoves.includes(index)) {
+            board[selectedIndex] = null; board[index] = "red";
+            checkAndRemoveSandwich(index, "red");
+            if (!checkGameOverByTrap("blue")) {
+                soloTurn = "blue"; setTimeout(botMove, 800);
+            }
+            resetSelection();
+        }
+    }
+    if (redPiecesPlaced === 12 && bluePiecesPlaced === 12) phase = "moving";
+    updateSoloUI(); renderBoard();
+}
+
+function botMove() {
+    if (!isSoloMode || gameEnded) return;
+    if (phase === "placing") {
+        let empty = board.map((v, i) => v === null ? i : null).filter(v => v !== null);
+        if (empty.length > 0) {
+            let idx = empty[Math.floor(Math.random() * empty.length)];
+            board[idx] = "blue"; bluePiecesPlaced++;
+            checkAndRemoveSandwich(idx, "blue");
+            if (bluePiecesPlaced % 2 !== 0 && bluePiecesPlaced < 12) setTimeout(botMove, 600);
+            else soloTurn = "red";
+        }
+    } else {
+        let botPieces = board.map((v, i) => v === "blue" ? i : null).filter(v => v !== null);
+        let moved = botPieces.some(p => {
+            let moves = getMoves(p);
+            if (moves.length > 0) {
+                let to = moves[Math.floor(Math.random() * moves.length)];
+                board[p] = null; board[to] = "blue";
+                checkAndRemoveSandwich(to, "blue");
+                return true;
+            }
+            return false;
+        });
+        checkGameOverByTrap("red");
+        soloTurn = "red";
+    }
+    if (redPiecesPlaced === 12 && bluePiecesPlaced === 12) phase = "moving";
+    updateSoloUI(); renderBoard();
+}
+
+// --- SOCKET EVENTS ---
+
+socket.on("gameState", (state) => {
+    if (isSoloMode) return;
+    board = state.board; phase = state.phase; turn = state.turn;
+    gameEnded = !!state.winner;
+    showGameScreen(); updateUI(state); renderBoard();
+});
 
 socket.on("matchFound", (data) => {
-    roomCode = data.roomCode;
+    roomCode = data.roomCode; isSoloMode = false;
     localStorage.setItem("shaxRoom", roomCode);
     showGameScreen();
 });
 
-socket.on("gameState", (state) => {
-    if (isSoloMode) return;
-    board = state.board; 
-    phase = state.phase; 
-    turn = state.turn;
-    gameEnded = !!state.winner;
-    showGameScreen(); 
-    renderBoard();
-});
-
-socket.on("opponentLeft", () => {
-    gameEnded = true;
-    alert("Qofkii kale waa uu baxay! Waxaad u guulaysatay si Technical ah.");
-});
-
-function startRandomMatch() {
-    const nameInput = document.getElementById("nameInput");
-    const name = nameInput ? nameInput.value.trim() : "";
-    if (!name) return alert("Fadlan geli magacaaga");
-    localStorage.setItem("shaxName", name);
-    isSoloMode = false;
-    socket.emit("findMatch", name);
-}
-
-function joinRoom() {
-    const nameInput = document.getElementById("nameInput");
-    const roomInput = document.getElementById("roomInput");
-    const name = nameInput ? nameInput.value.trim() : "";
-    const r = roomInput ? roomInput.value.trim() : "";
-    if (!name || !r) return alert("Geli magaca iyo code-ka qolka");
-    localStorage.setItem("shaxName", name);
-    localStorage.setItem("shaxRoom", r);
-    isSoloMode = false;
-    socket.emit("joinRoom", { roomCode: r, playerName: name });
-}
-/ --- SPECTATOR FUNCTIONS ---
-
-function watchLiveMatch() {
-    const nameInput = document.getElementById("nameInput");
-    const name = nameInput.value.trim() || "Daawade " + Math.floor(Math.random() * 1000);
-    
-    if (!socket || !socket.connected) {
-        alert("Server-ka laguma xirna. Fadlan dib u cusboonaysii bogga.");
-        return;
-    }
-
-    socket.emit("requestSpectate", name);
-}
-
 socket.on("spectateGame", (data) => {
-    myColor = "spectator";
-    roomCode = data.roomCode;
-    
+    myColor = "spectator"; isSoloMode = false;
     showGameScreen();
-    
-    const turnText = document.getElementById("turnText");
-    if (turnText) {
-        turnText.innerText = `👀 Waxaad daawanaysaa: ${data.players}`;
-        turnText.style.color = "#ffd60a";
-    }
-    
-    const boardDiv = document.getElementById("board");
-    if (boardDiv) {
-        boardDiv.style.pointerEvents = "none"; 
-        boardDiv.style.opacity = "0.9"; 
-    }
+    const txt = document.getElementById("turnText");
+    if (txt) { txt.innerText = "👀 Daawade"; txt.style.color = "#ffd60a"; }
 });
 
-socket.on("noGamesToWatch", () => {
-    alert("Xilligan ma jiraan ciyaaro socda oo aad daawan karto.");
-});
+// --- HELPER START FUNCTIONS ---
+function startRandomMatch() {
+    const n = document.getElementById("nameInput").value.trim();
+    if (n) { isSoloMode = false; socket.emit("findMatch", n); }
+}
+
+function watchLiveMatch() { socket.emit("requestSpectate", "Daawade"); }

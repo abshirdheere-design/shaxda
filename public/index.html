@@ -1,243 +1,220 @@
-<!DOCTYPE html>
-<html lang="so">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+const socket = io();
+
+// --- VARIABLES ---
+let myColor = null, roomCode = null, board = Array(25).fill(null);
+let phase = "placing", turn = null, selectedIndex = null;
+let possibleMoves = [], gameEnded = false, activePiece = null;
+
+// Solo Mode States
+let isSoloMode = false;
+let soloTurn = "red"; // 'red' waa adiga (X), 'blue' waa Bot-ka (O)
+let redPiecesPlaced = 0, bluePiecesPlaced = 0;
+
+// --- INITIAL LOAD ---
+window.onload = () => {
+    const savedRoom = localStorage.getItem("shaxRoom");
+    const savedName = localStorage.getItem("shaxName");
+    if (savedRoom && savedName && !isSoloMode) {
+        socket.emit("joinRoom", { roomCode: savedRoom, playerName: savedName });
+    }
+};
+
+// --- MULTIPLAYER SOCKET EVENTS ---
+
+socket.on("assignedColor", (color) => { 
+    myColor = color; 
+    const boardElement = document.getElementById("board");
+    const turnText = document.getElementById("turnText");
+
+    if (color === "spectator") {
+        if (turnText) {
+            turnText.innerText = "👀 Waxaad tahay Daawade";
+            turnText.style.color = "#ffd60a";
+        }
+        if (boardElement) {
+            boardElement.style.pointerEvents = "none"; 
+            boardElement.style.opacity = "0.8"; 
+        }
+    }
+});
+
+socket.on("gameState", (state) => {
+    if (isSoloMode) return; // MUHIIM: Jooji server-ka haddii Solo lagu jiro
+    if (!state) return;
+    board = state.board;
+    phase = state.phase;
+    turn = state.turn;
+    activePiece = state.activePiece;
+    gameEnded = !!state.winner;
+
+    updateUI(state);
+    renderBoard();
+});
+
+// --- SOLO MODE FUNCTIONS ---
+
+window.initSoloGame = function() {
+    isSoloMode = true;
+    gameEnded = false;
+    board = Array(25).fill(null);
+    phase = "placing";
+    soloTurn = "red";
+    myColor = "red";
+    redPiecesPlaced = 0;
+    bluePiecesPlaced = 0;
     
-    <meta property="fb:app_id" content="1314104827206725" />
-    <meta property="og:type" content="games.casual" />
-    <meta property="og:title" content="JARTA LABADA DARAF - Multiplayer 2026" />
-    <meta property="og:description" content="Ku ciyaar Jarta Online saaxiibbadaa. Ciyaar dhaqameed casri ah oo uu horumariyay Abshir Hassan (Abshirdheere)." />
-    <meta property="og:url" content="https://ciyaar-jar.onrender.com" />
-    <meta property="og:image" content="https://ciyaar-jar.onrender.com/assets/logo.png" />
-
-    <title>JARTA LABADA DARAF - Multiplayer 2026</title>
-    <link rel="stylesheet" href="style.css"> 
+    document.getElementById("p1-display").innerText = "🔴 Adiga";
+    document.getElementById("p2-display").innerText = "🔵 Robot (Bot)";
     
-    <style>
-        /* Isbeddelka Mobilka si aan hoos loogu socon (Scrolling) */
-        .mode-row {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 10px;
-            width: 100%;
+    updateSoloUI();
+    renderBoard();
+};
+
+function updateSoloUI() {
+    const turnText = document.getElementById("turnText");
+    if (gameEnded) return;
+
+    if (soloTurn === "red") {
+        turnText.innerText = phase === "placing" ? "Turn-kaaga: Dhig" : "Turn-kaaga: Dhaqaaq";
+        turnText.style.color = "#2ecc71";
+    } else {
+        turnText.innerText = "Robot-ka ayaa fakaraya...";
+        turnText.style.color = "#f39c12";
+    }
+}
+
+// --- CORE GAMEPLAY LOGIC ---
+
+function handleCellClick(index) {
+    if (gameEnded || myColor === "spectator") return;
+
+    // 1. SOLO MODE LOGIC
+    if (isSoloMode) {
+        if (soloTurn !== "red") return; 
+
+        if (phase === "placing") {
+            if (board[index] === null && redPiecesPlaced < 12) {
+                board[index] = "red";
+                redPiecesPlaced++;
+                playSound("move");
+                checkSoloPhaseTransition();
+                soloTurn = "blue";
+                updateSoloUI();
+                renderBoard();
+                setTimeout(botMove, 800); // Robot-ka ayaa ciyaaraya
+            }
+        } else {
+            handleMovingPhaseSolo(index);
         }
+        return;
+    }
 
-        .mode-box.mini {
-            flex: 1;
-            padding: 15px 10px;
-            text-align: center;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+    // 2. ONLINE MULTIPLAYER LOGIC
+    if (turn !== socket.id) return;
+    const rCode = roomCode || localStorage.getItem("shaxRoom");
+
+    if (phase === "placing") {
+        if (board[index] === null) {
+            socket.emit("move", { roomCode: rCode, move: { type: "place", index } });
         }
-
-        .mode-box.mini h3 {
-            font-size: 14px;
-            margin: 5px 0;
-            color: white;
+    } else {
+        // Online moving logic (koodhkaaga hadda ka eeg)
+        if (board[index] === myColor) {
+            selectedIndex = index;
+            possibleMoves = getMoves(index);
+        } else if (selectedIndex !== null && possibleMoves.includes(index)) {
+            socket.emit("move", { roomCode: rCode, move: { type: "move", from: selectedIndex, to: index } });
+            selectedIndex = null;
+            possibleMoves = [];
         }
+    }
+    renderBoard();
+}
 
-        .mode-box.mini .mode-icon {
-            font-size: 22px;
+// --- BOT AI LOGIC ---
+
+function botMove() {
+    if (!isSoloMode || gameEnded) return;
+
+    if (phase === "placing") {
+        let available = board.map((v, i) => v === null ? i : null).filter(v => v !== null);
+        if (available.length > 0) {
+            let move = available[Math.floor(Math.random() * available.length)];
+            board[move] = "blue";
+            bluePiecesPlaced++;
         }
-
-        .btn-mini {
-            width: 100%;
-            padding: 10px 5px;
-            font-size: 13px;
-            font-weight: bold;
-            border-radius: 6px;
-            border: none;
-            cursor: pointer;
-            color: white;
-        }
-
-        .btn-orange { background: linear-gradient(45deg, #e67e22, #d35400); }
-        .btn-green { background: linear-gradient(45deg, #2ecc71, #27ae60); }
-        .btn-blue { background: linear-gradient(45deg, #3498db, #2980b9); }
-        .btn-purple { background: linear-gradient(45deg, #9b59b6, #8e44ad); }
-
-        /* Qari qoraalka dheer ee p-ga si boos loo helo */
-        .mode-box.mini p { display: none; }
-
-        .private-section {
-            width: 100%;
-            margin-top: 5px;
-        }
-    </style>
-</head>
-
-<body>
-    <div class="bg-decoration"></div>
-
-    <div class="container">
-        <header class="header-section">
-            <h1 class="game-title">JARTA LABADA DARAF</h1>
-            <div id="online-status">
-                <span id="status-dot" class="dot-online">-●-</span>
-                <span class="status-label">Live Online:-</span>
-                <span id="user-count">-0-</span>
-            </div>
-        </header>
-
-        <main id="setup-area" class="setup-container">
-            <div class="welcome-text">
-                <h3>Ku soo dhowaad Shaxda Casriga ah</h3>
-                <p>Gali magacaaga si aad u bilowdo</p>
-            </div>
-
-            <div class="input-group">
-                <label for="nameInput">Magacaaga</label>
-                <input id="nameInput" type="text" placeholder="Qor magacaaga halkan..." autocomplete="off">
-            </div>
-
-            <div class="mode-row">
-                <div class="mode-box mini">
-                    <div class="mode-icon">🤖</div>
-                    <h3>Keligay</h3>
-                    <button onclick="startSoloGame()" class="btn-mini btn-orange">Ciyaar</button>
-                </div>
-                <div class="mode-box mini">
-                    <div class="mode-icon">🌍</div>
-                    <h3>Online</h3>
-                    <button onclick="startRandomMatch()" class="btn-mini btn-green">Raadi</button>
-                </div>
-            </div>
-
-            <div class="mode-row">
-                <div class="mode-box mini">
-                    <div class="mode-icon">📺</div>
-                    <h3>Daawo</h3>
-                    <button onclick="watchLiveMatch()" class="btn-mini btn-blue">Live</button>
-                </div>
-                <div class="mode-box mini">
-                    <div class="mode-icon">🔐</div>
-                    <h3>Qol Khaas</h3>
-                    <button onclick="togglePrivateInput()" class="btn-mini btn-purple">Abuur</button>
-                </div>
-            </div>
-
-            <div id="private-input-area" class="private-section" style="display:none;">
-                <div class="private-input-wrapper">
-                    <input id="roomInput" type="text" placeholder="Code-ka qolka">
-                    <button onclick="joinRoom()" class="btn-main btn-blue" style="padding: 10px;">Ku Biir</button>
-                </div>
-            </div>
-        </main>
-
-        <div id="game-ui" style="display:none;">
-            <div class="player-info-bar">
-                <div id="p1-display" class="player-tag">🔴 Sugaya...</div>
-                <div id="p2-display" class="player-tag">🔵 Sugaya...</div>
-            </div>
-
-            <div class="captured-stats">
-                <div class="captured-container">
-                    <p class="captured-label">Laga qabsaday (RED)</p>
-                    <div id="captured-red" class="captured-pieces"></div>
-                </div>
-                <div class="captured-container">
-                    <p class="captured-label">Laga qabsaday (BLUE)</p>
-                    <div id="captured-blue" class="captured-pieces"></div>
-                </div>
-            </div>
-
-            <h3 id="turnText" class="status-text">Diyaar ma tahay?</h3>
-
-            <div id="board"></div>
-
-            <div class="game-controls">
-                <button id="leaveBtn" onclick="leaveGame()" class="btn-exit-game">🔙 Ka bax</button>
-            </div>
-        </div>
-
-        <div id="gameModal" class="modal-overlay" style="display:none;">
-            <div class="modal-content">
-                <h2 id="modalTitle">Natiijada</h2>
-                <p id="modalBody"></p>
-                <button onclick="closeModal()" class="btn-main btn-green">OK</button>
-            </div>
-        </div>
-
-        <footer class="game-footer">
-            <div class="dev-info">
-                <span class="dev-title">Main Developer</span>
-                <span class="dev-name">Abshir Hassan (Abshirdheere)</span>
-            </div>
-            <div class="dev-contact">
-                <a href="mailto:abshirdheere@gmail.com" class="email-link">
-                    <span class="icon">✉️</span> abshirdheere@gmail.com
-                </a>
-            </div>
-            <p class="copyright">© 2026 Jarta Labada Daraf. Xuquuqda way dhowrantahay.</p>
-        </footer>
-    </div>
-
-    <audio id="moveSound" src="https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3"></audio>
-    <audio id="captureSound" src="https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3"></audio>
-
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    
-    <script>
-        // 1. SOLO GAME LOGIC
-        let isSoloMode = false;
-
-        function startSoloGame() {
-            const name = document.getElementById("nameInput").value.trim() || "Adiga";
-            isSoloMode = true;
-            
-            document.getElementById("setup-area").style.display = "none";
-            document.getElementById("game-ui").style.display = "block";
-            
-            document.getElementById("p1-display").innerText = "🔴 " + name;
-            document.getElementById("p2-display").innerText = "🔵 Robot (Bot)";
-            
-            // Tani waxay u yeeraysaa function-ka ku dhex jira script.js
-            if (window.initSoloGame) {
-                window.initSoloGame();
-            } else {
-                alert("Logic-ga Bot-ka weli laguma darin script.js");
+    } else {
+        // Bot Move Logic (Moving Phase)
+        let botPieces = board.map((v, i) => v === "blue" ? i : null).filter(v => v !== null);
+        for (let p of botPieces) {
+            let moves = getMoves(p);
+            if (moves.length > 0) {
+                let target = moves[Math.floor(Math.random() * moves.length)];
+                board[p] = null;
+                board[target] = "blue";
+                break;
             }
         }
+    }
 
-        function togglePrivateInput() {
-            const area = document.getElementById("private-input-area");
-            area.style.display = area.style.display === "none" ? "block" : "none";
+    playSound("move");
+    checkSoloPhaseTransition();
+    soloTurn = "red";
+    updateSoloUI();
+    renderBoard();
+}
+
+function checkSoloPhaseTransition() {
+    if (redPiecesPlaced === 12 && bluePiecesPlaced === 12) {
+        phase = "moving";
+    }
+}
+
+// --- RENDER & UTILS ---
+
+function renderBoard() {
+    const boardDiv = document.getElementById("board");
+    if (!boardDiv) return;
+    boardDiv.innerHTML = "";
+    board.forEach((cell, i) => {
+        const div = document.createElement("div");
+        div.className = `cell ${cell || ''}`;
+        if (selectedIndex === i) div.classList.add("selected");
+        if (possibleMoves.includes(i)) div.classList.add("highlight-move");
+        div.onclick = () => handleCellClick(i);
+        boardDiv.appendChild(div);
+    });
+}
+
+function getMoves(pos) {
+    let list = [], r = Math.floor(pos/5), c = pos%5, dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    dirs.forEach(([dr, dc]) => {
+        let nr = r+dr, nc = c+dc;
+        if (nr>=0 && nr<5 && nc>=0 && nc<5 && board[nr*5+nc] === null) {
+            list.push(nr*5+nc);
         }
+    });
+    return list;
+}
 
-        // 2. DIFAACA KOODHKA (SECURITY)
-        document.addEventListener('contextmenu', function(e) { e.preventDefault(); }, false);
-        document.onkeydown = function(e) {
-            if (e.keyCode == 123 || (e.ctrlKey && e.shiftKey && (e.keyCode == 'I'.charCodeAt(0) || e.keyCode == 'J'.charCodeAt(0))) || (e.ctrlKey && e.keyCode == 'U'.charCodeAt(0))) return false;
-        };
+function playSound(type) {
+    const sound = (type === "move") ? document.getElementById("moveSound") : document.getElementById("captureSound");
+    if (sound) sound.play().catch(e => console.log("Sound error"));
+}
 
-        // 3. GAME FUNCTIONS
-        function leaveGame() {
-            if(confirm("Ma hubtaa inaad ka baxayso?")) {
-                localStorage.removeItem("shaxRoom");
-                location.reload();
-            }
-        }
+// --- NAVIGATION ---
 
-        function closeModal() {
-            document.getElementById("gameModal").style.display = "none";
-            location.reload(); 
-        }
+function startRandomMatch() {
+    isSoloMode = false; // Hubi inaan Solo ka bixi lahayn
+    const name = document.getElementById("nameInput").value.trim();
+    if (!name) return alert("Geli magaca");
+    localStorage.setItem("shaxName", name);
+    socket.emit("findMatch", name);
+}
 
-        function watchLiveMatch() {
-            const name = document.getElementById("nameInput").value.trim() || "Daawade";
-            document.getElementById("setup-area").style.display = "none";
-            document.getElementById("game-ui").style.display = "block";
-            if (typeof socket !== 'undefined') {
-                socket.emit("requestSpectate", name);
-            }
-        }
-    </script>
-    <script src="script.js" defer></script>
-</body>
-</html>
+function leaveGame() {
+    if(confirm("Ma hubtaa inaad ka baxayso?")) {
+        localStorage.removeItem("shaxRoom");
+        location.reload();
+    }
+}

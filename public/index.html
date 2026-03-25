@@ -13,6 +13,63 @@
 
     <title>JARTA LABADA DARAF - Multiplayer 2026</title>
     <link rel="stylesheet" href="style.css"> 
+    
+    <style>
+        /* Isbeddelka Mobilka si aan hoos loogu socon (Scrolling) */
+        .mode-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            width: 100%;
+        }
+
+        .mode-box.mini {
+            flex: 1;
+            padding: 15px 10px;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .mode-box.mini h3 {
+            font-size: 14px;
+            margin: 5px 0;
+            color: white;
+        }
+
+        .mode-box.mini .mode-icon {
+            font-size: 22px;
+        }
+
+        .btn-mini {
+            width: 100%;
+            padding: 10px 5px;
+            font-size: 13px;
+            font-weight: bold;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            color: white;
+        }
+
+        .btn-orange { background: linear-gradient(45deg, #e67e22, #d35400); }
+        .btn-green { background: linear-gradient(45deg, #2ecc71, #27ae60); }
+        .btn-blue { background: linear-gradient(45deg, #3498db, #2980b9); }
+        .btn-purple { background: linear-gradient(45deg, #9b59b6, #8e44ad); }
+
+        /* Qari qoraalka dheer ee p-ga si boos loo helo */
+        .mode-box.mini p { display: none; }
+
+        .private-section {
+            width: 100%;
+            margin-top: 5px;
+        }
+    </style>
 </head>
 
 <body>
@@ -39,29 +96,36 @@
                 <input id="nameInput" type="text" placeholder="Qor magacaaga halkan..." autocomplete="off">
             </div>
 
-            <div class="selection-grid">
-                <div class="mode-box">
+            <div class="mode-row">
+                <div class="mode-box mini">
+                    <div class="mode-icon">🤖</div>
+                    <h3>Keligay</h3>
+                    <button onclick="startSoloGame()" class="btn-mini btn-orange">Ciyaar</button>
+                </div>
+                <div class="mode-box mini">
                     <div class="mode-icon">🌍</div>
-                    <h3>Ciyaar Hadda</h3>
-                    <p>La ciyaar qof kasta oo online ah hadda.</p>
-                    <button onclick="startRandomMatch()" class="btn-main btn-green">Raadi Ciyaar</button>
+                    <h3>Online</h3>
+                    <button onclick="startRandomMatch()" class="btn-mini btn-green">Raadi</button>
                 </div>
+            </div>
 
-                <div class="mode-box">
+            <div class="mode-row">
+                <div class="mode-box mini">
                     <div class="mode-icon">📺</div>
-                    <h3>Daawo Live</h3>
-                    <p>Daawo oo kaliya 2 qof oo ciyaaraysa.</p>
-                    <button onclick="watchLiveMatch()" class="btn-main btn-blue" style="background: linear-gradient(45deg, #f39c12, #e67e22);">Daawo Ciyaar</button>
+                    <h3>Daawo</h3>
+                    <button onclick="watchLiveMatch()" class="btn-mini btn-blue">Live</button>
                 </div>
-
-                <div class="mode-box">
+                <div class="mode-box mini">
                     <div class="mode-icon">🔐</div>
-                    <h3>Qol Khaas ah</h3>
-                    <p>Abuur qol adiga iyo saaxiibkaa idiin gaar ah.</p>
-                    <div class="private-input-wrapper">
-                        <input id="roomInput" type="text" placeholder="Code-ka qolka">
-                        <button onclick="joinRoom()" class="btn-main btn-blue">Ku Biir</button>
-                    </div>
+                    <h3>Qol Khaas</h3>
+                    <button onclick="togglePrivateInput()" class="btn-mini btn-purple">Abuur</button>
+                </div>
+            </div>
+
+            <div id="private-input-area" class="private-section" style="display:none;">
+                <div class="private-input-wrapper">
+                    <input id="roomInput" type="text" placeholder="Code-ka qolka">
+                    <button onclick="joinRoom()" class="btn-main btn-blue" style="padding: 10px;">Ku Biir</button>
                 </div>
             </div>
         </main>
@@ -120,16 +184,36 @@
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     
     <script>
-        // 2. DIFAACA KOODHKA (SECURITY)
-        document.addEventListener('contextmenu', function(e) {
-            e.preventDefault();
-        }, false);
+        // 1. SOLO GAME LOGIC
+        let isSoloMode = false;
 
+        function startSoloGame() {
+            const name = document.getElementById("nameInput").value.trim() || "Adiga";
+            isSoloMode = true;
+            
+            document.getElementById("setup-area").style.display = "none";
+            document.getElementById("game-ui").style.display = "block";
+            
+            document.getElementById("p1-display").innerText = "🔴 " + name;
+            document.getElementById("p2-display").innerText = "🔵 Robot (Bot)";
+            
+            // Tani waxay u yeeraysaa function-ka ku dhex jira script.js
+            if (window.initSoloGame) {
+                window.initSoloGame();
+            } else {
+                alert("Logic-ga Bot-ka weli laguma darin script.js");
+            }
+        }
+
+        function togglePrivateInput() {
+            const area = document.getElementById("private-input-area");
+            area.style.display = area.style.display === "none" ? "block" : "none";
+        }
+
+        // 2. DIFAACA KOODHKA (SECURITY)
+        document.addEventListener('contextmenu', function(e) { e.preventDefault(); }, false);
         document.onkeydown = function(e) {
-            if (e.keyCode == 123) return false;
-            if (e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) return false;
-            if (e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) return false;
-            if (e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) return false;
+            if (e.keyCode == 123 || (e.ctrlKey && e.shiftKey && (e.keyCode == 'I'.charCodeAt(0) || e.keyCode == 'J'.charCodeAt(0))) || (e.ctrlKey && e.keyCode == 'U'.charCodeAt(0))) return false;
         };
 
         // 3. GAME FUNCTIONS
